@@ -4,11 +4,11 @@ from flask_cors import CORS
 import os
 
 app = Flask(__name__)
-CORS(app, origins=[
-    "http://127.0.0.1:5500",           # Local dev
-    "http://localhost:5500",           # Alt local dev
-    "https://rylandbangerter.github.io"  # Your GitHub Pages domain
-])
+CORS(app, resources={r"/*": {"origins": [
+    "http://127.0.0.1:5500",
+    "http://localhost:5500",
+    "https://rylandbangerter.github.io"
+]}}, supports_credentials=True)
 
 
 @app.route("/predict", methods=["POST"])
