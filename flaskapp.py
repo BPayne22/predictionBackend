@@ -6,7 +6,7 @@ app = Flask(__name__)
 CORS(app, origins=[
     "http://127.0.0.1:5500",           # Local dev
     "http://localhost:5500",           # Alt local dev
-    "https://your-github-username.github.io"  # Your GitHub Pages domain
+    "https://rylandbangerter.github.io"  # Your GitHub Pages domain
 ])
 
 
