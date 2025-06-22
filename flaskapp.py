@@ -1,23 +1,25 @@
 from flask import Flask, request, jsonify
-import predictionModelV3 as model_logic  
+import predictionModelV3 as model_logic
+from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app)
 
-@app.route("/predict", methods=["GET"])
+@app.route("/predict", methods=["POST"])
 def predict():
-    player_name = "freddie_freeman"
-    selected_stat = "H"
-    opponent = request.args.get("opponent", "DET")
+    data = request.get_json()
+    player = data.get("player")
+    stat = data.get("stat")
+    opponent = data.get("opponent")
 
-    # Run prediction pipeline
-    df = model_logic.fetch_and_clean_player_data(player_name, selected_stat)
-    features, targets, target_stats = model_logic.prepare_features_and_targets(df, selected_stat)
-    features = model_logic.add_user_input_opponent(features, opponent)
+    if not all([player, stat, opponent]):
+        return jsonify({"error": "Missing input fields"}), 400
 
-    model, _ = model_logic.train_model(features, targets)
-    prediction = model.predict(features.iloc[[-1]])[0]
-
-    return jsonify({stat: float(val) for stat, val in zip(target_stats, prediction)})
+    try:
+        target_stats, prediction = model_logic.get_prediction(player, stat, opponent)
+        return jsonify({stat: float(val) for stat, val in zip(target_stats, prediction)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=False)
