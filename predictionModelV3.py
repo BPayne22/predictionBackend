@@ -226,11 +226,37 @@ def predict_next_game(model, features, target_stats):
     for stat, val in zip(target_stats, prediction):
         print(f"{stat:<8} {val:>10.3f}")
 
+# === Pulls data from HTML ===
+def get_prediction(player_name, selected_stat, opponent):
+    from dotenv import load_dotenv
+    import os
+    import firebase_admin
+    from firebase_admin import credentials
+
+    load_dotenv()
+    key_path = os.environ.get("FIREBASE_KEY_PATH")
+
+    if not key_path:
+        raise ValueError("FIREBASE_KEY_PATH environment variable is not set.")
+
+    if not firebase_admin._apps:
+        cred = credentials.Certificate(key_path)
+        firebase_admin.initialize_app(cred)
+
+    df = fetch_and_clean_player_data(player_name, selected_stat)
+    features, targets, target_stats = prepare_features_and_targets(df, selected_stat)
+    features = add_user_input_opponent(features, opponent)
+    model, _ = train_model(features, targets)
+    prediction = model.predict(features.iloc[[-1]])[0]
+
+    return target_stats, prediction
+
 # ===  Main Execution ===
 if __name__ == "__main__":
-    player_name = "freddie_freeman"  # Replace this later with user input from HTML
-    selected_stat = "SB" # This will come from HTML input
-    opponent = "DET"
+    #player_name = "freddie_freeman"  # Replace this later with user input from HTML
+    #selected_stat = "SB" # This will come from HTML input
+    #opponent = "DET"
+    
     df = fetch_and_clean_player_data(player_name, selected_stat)
     #This Print Statement is for checking if all the values are being found
     #print("Jose Altuve data sample:\n", df.head(1).T)
