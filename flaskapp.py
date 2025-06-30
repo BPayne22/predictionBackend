@@ -7,7 +7,8 @@ app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": [
     "http://127.0.0.1:5500",
     "http://localhost:5500",
-    "https://rylandbangerter.github.io"
+    "https://rylandbangerter.github.io",
+    "https://685c3bc628567b00087470c5--merry-gnome-9ee3d2.netlify.app"
 ]}}, supports_credentials=True)
 
 
@@ -22,10 +23,12 @@ def predict():
         return jsonify({"error": "Missing input fields"}), 400
 
     try:
-        target_stats, prediction = model_logic.get_prediction(player, stat, opponent)
+        target_stats, prediction = model_logic.get_prediction(
+            player, stat, opponent)
         return jsonify({stat: float(val) for stat, val in zip(target_stats, prediction)})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
