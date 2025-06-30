@@ -281,9 +281,7 @@ def get_prediction(player_name, selected_stat, opponent):
     model, _ = train_model(features, targets)
     prediction = model.predict(features.iloc[[-1]])[0]
 
-    formatted_predition = f"{prediction:.3f}"
-
-    return target_stats, formatted_prediction
+    return target_stats, prediction
 
 
 # ===  Main Execution ===
