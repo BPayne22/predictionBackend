@@ -14,6 +14,15 @@ CORS(app, resources={r"/*": {"origins": [
 
 @app.route("/predict", methods=["POST"])
 def predict():
+
+    if request.method == "OPTIONS":
+        response = make_response()
+        response.headers.add("Access-Control-Allow-Origin", "https://686e981c9930ce00086f44c9--merry-gnome-9ee3d2.netlify.app")
+        response.headers.add("Access-Control-Allow-Headers", "Content-Type")
+        response.headers.add("Access-Control-Allow-Methods", "POST, OPTIONS")
+        response.headers.add("Access-Control-Allow-Credentials", "true")
+        return response
+    
     data = request.get_json()
     player = data.get("player")
     stat = data.get("stat")
