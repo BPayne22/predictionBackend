@@ -8,7 +8,7 @@ CORS(app, resources={r"/*": {"origins": [
     "http://127.0.0.1:5500",
     "http://localhost:5500",
     "https://rylandbangerter.github.io",
-    "https://686e981c9930ce00086f44c9--merry-gnome-9ee3d2.netlify.app/mbgpt/"
+    "https://686e981c9930ce00086f44c9--merry-gnome-9ee3d2.netlify.app"
 ]}}, supports_credentials=True)
 
 
