@@ -46,13 +46,17 @@ def add_lagged_features(df, stats, lags=[1, 3], lag_weights={1: 1.2, 3: 1.1}, ro
 
 
 def fetch_and_clean_player_data(player_name, selected_stat):
-    docs = db.collection("gameStats").stream()
+    docs = (
+    db.collection("gameStats")
+      .where("player", "==", player_name)
+      .stream()
+    )
     cleaned_data = []
 
     for doc in docs:
         doc_id = doc.id
-        if not doc_id.startswith(player_name):
-            continue  # Skip other players
+        if "postseason" in doc_id.lower():
+            continue # Skip postseason games
 
         raw = doc.to_dict()
         cleaned = {}
@@ -117,7 +121,7 @@ def prepare_features_and_targets(df, selected_stat):
 
     # Drop columns we do not want to use for features
     drop_cols = ['Date', 'Result', 'Team', 'DFS(DK)', 'DFS(FD)', 'WPA', 'cWPA', 'aLI', 'acLI',
-                 'RE24', 'Rk', 'Inngs', 'Pos', 'Gtm', 'Gcar', '@/H', 'BOP', 'IBB', 'HBP', 'SH', 'SF', 'CS']
+                 'RE24', 'Rk', 'Inngs', 'Pos', 'Gtm', 'Gcar', '@/H', 'BOP', 'IBB', 'HBP', 'SH', 'SF', 'CS', 'player']
 
     df = df.drop(
         columns=[col for col in drop_cols if col in df.columns], errors='ignore')
