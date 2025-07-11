@@ -13,7 +13,7 @@ CORS(app, origins=[
     "https://686e981c9930ce00086f44c9--merry-gnome-9ee3d2.netlify.app"
 ], supports_credentials=True)
 
-@app.route("/predict", methods=["POST"])
+@app.route("/predict", methods=["POST", "OPTIONS"])
 def predict():
     data = request.get_json()
 
