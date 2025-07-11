@@ -24,21 +24,30 @@ db = firestore.client()
 
 
 def add_lagged_features(df, stats, lags=[1, 3], lag_weights={1: 1.2, 3: 1.1}, rolling_weight=1.3):
+    df = df.copy()
+
     for stat in stats:
+        if stat not in df.columns:
+            print(f"Warning: '{stat}' not found in DataFrame. Skipping.")
+            continue
+
+        # Make sure stat column is numeric
+        df[stat] = pd.to_numeric(df[stat], errors='coerce')
+
         for lag in lags:
             column_name = f'{stat}_lag{lag}'
             df[column_name] = df[stat].shift(lag)
 
-            # Apply weighting to lagged features
-            # Default weight = 1 if lag isn't specified
+            # Ensure lagged column is numeric before weighting
+            df[column_name] = pd.to_numeric(df[column_name], errors='coerce')
             df[column_name] *= lag_weights.get(lag, 1)
 
-        # Add rolling average over last 3 games
+        # Rolling average over last 3 games, shifted to avoid leakage
         rolling_name = f'{stat}_rolling3'
         df[rolling_name] = df[stat].rolling(3).mean().shift(1)
 
-        # Apply weighting to rolling average features
-        df[rolling_name] *= rolling_weight
+        # Convert and weight
+        df[rolling_name] = pd.to_numeric(df[rolling_name], errors='coerce') * rolling_weight
 
     return df
 
