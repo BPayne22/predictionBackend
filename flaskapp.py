@@ -34,7 +34,7 @@ def predict():
     try:
         target_stats, prediction = model_logic.get_prediction(
             player, stat, opponent)
-        return jsonify({stat: f"{float(val):.3f}" for stat, val in zip(target_stats, prediction)})
+        return jsonify({target_stats[0]: f"{float(prediction):.3f}"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
