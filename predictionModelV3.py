@@ -6,6 +6,7 @@ import xgboost as xgb
 from sklearn.multioutput import MultiOutputRegressor
 from sklearn.model_selection import KFold
 from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.feature_selection import VarianceThreshold
 import os
 import re
 
@@ -23,7 +24,7 @@ db = firestore.client()
 # === Lagged Features ===
 
 
-def add_lagged_features(df, stats, lags=[1, 3], lag_weights={1: 1.2, 3: 1.1}, rolling_weight=1.3):
+def add_lagged_features(df, stats, lags=[1, 3, 10], lag_weights={1: 1.2, 3: 1.1, 10: 1.3}, rolling_weight=1.3):
     df = df.copy()
 
     for stat in stats:
@@ -31,22 +32,16 @@ def add_lagged_features(df, stats, lags=[1, 3], lag_weights={1: 1.2, 3: 1.1}, ro
             print(f"Warning: '{stat}' not found in DataFrame. Skipping.")
             continue
 
-        # Make sure stat column is numeric
         df[stat] = pd.to_numeric(df[stat], errors='coerce')
 
         for lag in lags:
             column_name = f'{stat}_lag{lag}'
             df[column_name] = df[stat].shift(lag)
-
-            # Ensure lagged column is numeric before weighting
             df[column_name] = pd.to_numeric(df[column_name], errors='coerce')
             df[column_name] *= lag_weights.get(lag, 1)
 
-        # Rolling average over last 3 games, shifted to avoid leakage
         rolling_name = f'{stat}_rolling3'
         df[rolling_name] = df[stat].rolling(3).mean().shift(1)
-
-        # Convert and weight
         df[rolling_name] = pd.to_numeric(df[rolling_name], errors='coerce') * rolling_weight
 
     return df
@@ -55,17 +50,19 @@ def add_lagged_features(df, stats, lags=[1, 3], lag_weights={1: 1.2, 3: 1.1}, ro
 
 
 def fetch_and_clean_player_data(player_name, selected_stat):
+    #This is to avoid pulling all 100,000+ games we have in the firebase
     docs = (
     db.collection("gameStats")
       .where("player", "==", player_name)
       .stream()
     )
+
     cleaned_data = []
 
     for doc in docs:
         doc_id = doc.id
         if "postseason" in doc_id.lower():
-            continue # Skip postseason games
+            continue  # Skip postseason games
 
         raw = doc.to_dict()
         cleaned = {}
@@ -113,7 +110,7 @@ def fetch_and_clean_player_data(player_name, selected_stat):
 
     # === Add lagged features for the selected target stat ===
     target_stats = [selected_stat]
-    df = add_lagged_features(df, target_stats, lags=[1, 3])
+    df = add_lagged_features(df, target_stats, lags=[1, 3, 10])
 
     # Drop incomplete lagged rows
     df = df.dropna().reset_index(drop=True)
@@ -122,35 +119,63 @@ def fetch_and_clean_player_data(player_name, selected_stat):
     return df
 
 # ===  Define Features and Targets ===
-
-
 def prepare_features_and_targets(df, selected_stat):
-    # Define target stats to predict
     target_stats = [selected_stat]
+     
 
-    # Drop columns we do not want to use for features
-    drop_cols = ['Date', 'Result', 'Team', 'DFS(DK)', 'DFS(FD)', 'WPA', 'cWPA', 'aLI', 'acLI',
-                 'RE24', 'Rk', 'Inngs', 'Pos', 'Gtm', 'Gcar', '@/H', 'BOP', 'IBB', 'HBP', 'SH', 'SF', 'CS', 'player']
+    # Columns to drop that are metadata or too noisy
+    drop_cols = [
+        'Date','Result','Team','DFS(DK)','DFS(FD)','WPA','cWPA','aLI','acLI',
+        'RE24','Rk','Inngs','Pos','Gtm','Gcar','@/H','BOP','IBB','HBP','SH','SF','CS','player'
+    ]
+    df = df.drop(columns=[col for col in drop_cols if col in df.columns], errors='ignore')
 
-    df = df.drop(
-        columns=[col for col in drop_cols if col in df.columns], errors='ignore')
+    # Stats that are sparse or heavily zeroed — we'll bin them
+    rare_stats_to_bin = ['HR', '3B', 'SB', 'BB']
+    
+    # This allows us to still run predictions on rare stats
+    for stat in [s for s in rare_stats_to_bin if s != selected_stat]:
+        if stat in df.columns:
+            df[stat] = pd.to_numeric(df[stat], errors='coerce')
+            df[f'{stat}_bin'] = pd.cut(
+                df[stat],
+                bins=[-1, 0, 1, 3, 5, 100],
+                labels=['0', '1', '2-3', '4-5', '6+']
+            )
+            df.drop(columns=[stat], inplace=True)
+        
+
+    # Ensure correct typing for numeric operations
+    df = df.apply(pd.to_numeric, errors='ignore')
 
     features = df.copy()
 
-    # Split and rejoin numeric + categorical features properly
-    numeric = features.select_dtypes(include=['float64', 'int64'])
-    categorical = features.select_dtypes(exclude=['float64', 'int64'])
+    # Detect true categorical columns for encoding
+    categorical_cols = [
+        col for col in features.columns
+        if features[col].dtype == 'object' and col not in target_stats
+    ]
+    categorical = pd.get_dummies(features[categorical_cols], drop_first=True)
 
-    # Encode categorical data if it exsists
-    if not categorical.empty:
-        categorical = pd.get_dummies(categorical, drop_first=True)
+    # Drop low-frequency one-hot columns
+    selector = VarianceThreshold(threshold=0.001)  # only keep meaningful flags
+    filtered = selector.fit_transform(categorical)
+    categorical = pd.DataFrame(filtered, columns=[
+        col for col, keep in zip(categorical.columns, selector.get_support()) if keep
+    ])
 
-    features = categorical.join(numeric).fillna(0)
+    # Grab the numeric columns
+    numeric = features.drop(columns=categorical_cols)
+    numeric = numeric.apply(pd.to_numeric, errors='coerce')
 
-    # Convert to numeric values
+    # Combine and clean final feature matrix
+    features = pd.concat([categorical, numeric], axis=1).fillna(0)
+
+    # Prepare target column
     targets = df[target_stats].apply(pd.to_numeric, errors='coerce').fillna(0)
 
     return features, targets, target_stats
+
 
 # === Select Opponent ===
 
@@ -177,32 +202,32 @@ def add_user_input_opponent(features, user_opponent):
 
 
 def add_opponent_lagged_stats(df, stat, opponent):
-
     opponent_col = f'Opp_{opponent}'
 
-    # print("Available columns:", df.columns.tolist())  # Debugging: List all available columns
-    # if "Opp_SEA" in df.columns:
-    #    print(f"Total games where Opp_SEA is True: {df['Opp_SEA'].sum()}")
-    # else:
-    #    print("Warning: 'Opp_SEA' column is missing in df.")
-
-    # Ensure the opponent column exists
     if opponent_col not in df.columns:
-        raise ValueError(f"Opponent column '{
-                         opponent_col}' not found in DataFrame. Available columns: {df.columns.tolist()}")
+        raise ValueError(f"Column '{opponent_col}' not found in DataFrame.")
 
-    # Filter games played against this opponent
-    opp_games = df[df[opponent_col] == True]
-
-    # Apply lagged statistics
+    # Initialize lagged columns with NaN
     for lag in [1, 3, 5]:
-        df[f'{stat}_vs_{opponent}_lag{lag}'] = opp_games[stat].shift(lag)
+        lag_col = f'{stat}_vs_{opponent}_lag{lag}'
+        df[lag_col] = np.nan
+
+    # Create mask and extract matching indices
+    mask = df[opponent_col] == True
+    opp_indices = df[mask].index
+
+    # Generate lagged stats using just opponent rows
+    for lag in [1, 3, 5]:
+        shifted_vals = df.loc[mask, stat].shift(lag)
+        df.loc[opp_indices, f'{stat}_vs_{opponent}_lag{lag}'] = shifted_vals.values
 
     return df
 
 
 # ===  Train Model ===
-def train_model(features, targets):
+def train_model(features, targets, target_stats):
+    features = features.drop(columns=target_stats, errors='ignore')
+
     num_rows = len(features)
     weights = np.linspace(1, 3, num=num_rows)  # emphasize recent games
 
@@ -259,8 +284,12 @@ def save_models(model, target_stats):
 
 
 def predict_next_game(model, features, target_stats):
-    next_game_input = features.iloc[[-1]]
-    prediction = model.predict(next_game_input)[0]
+    next_game_input = features.drop(columns=target_stats, errors='ignore').iloc[[-1]]
+    print("\nActive Features Used for Prediction:")
+    for col, val in next_game_input.iloc[0].items():
+        if val != 0:
+            print(f"{col:<25} {val}")
+        prediction = model.predict(next_game_input)[0]
 
     print("\nPredicted Next Game Stats:")
     print(f"{'Stat':<8} {'Prediction':>10}")
@@ -279,7 +308,6 @@ def get_prediction(player_name, selected_stat, opponent):
 
     load_dotenv()
     key_path = os.environ.get("FIREBASE_KEY_PATH")
-
     if not key_path:
         raise ValueError("FIREBASE_KEY_PATH environment variable is not set.")
 
@@ -287,60 +315,79 @@ def get_prediction(player_name, selected_stat, opponent):
         cred = credentials.Certificate(key_path)
         firebase_admin.initialize_app(cred)
 
+    # Load and process data
     df = fetch_and_clean_player_data(player_name, selected_stat)
-    features, targets, target_stats = prepare_features_and_targets(
-        df, selected_stat)
+    features, targets, target_stats = prepare_features_and_targets(df, selected_stat)
+
+    # Add matchup context
     features = add_user_input_opponent(features, opponent)
-    model, _ = train_model(features, targets)
-    prediction = model.predict(features.iloc[[-1]])[0]
+    features = add_opponent_lagged_stats(features, selected_stat, opponent)
+
+    # Optionally: add lagged features like TB_lag10 if used
+    features = add_lagged_features(features, stats=[selected_stat], lags=[1, 3, 10])
+
+    # Train and predict
+    model, _ = train_model(features, targets, selected_stat)
+    next_input = features.iloc[[-1]].copy()
+    prediction = model.predict(next_input)[0]
 
     return target_stats, prediction
 
 
 # ===  Main Execution ===
 if __name__ == "__main__":
-    # player_name = "freddie_freeman"  # Replace this later with user input from HTML
-    # selected_stat = "SB" # This will come from HTML input
-    # opponent = "DET"
+    # Inputs from frontend or config
+    player_name = "shohei_ohtani"
+    selected_stat = "TB"
+    opponent = "SFG"
 
+    # Step 1: Load and preprocess data
     df = fetch_and_clean_player_data(player_name, selected_stat)
-    # This Print Statement is for checking if all the values are being found
-    # print("Jose Altuve data sample:\n", df.head(1).T)
-    features, targets, target_stats = prepare_features_and_targets(
-        df, selected_stat)
+    features, targets, target_stats = prepare_features_and_targets(df, selected_stat)
+
+    # Step 2: Add matchup-specific context
     features = add_user_input_opponent(features, opponent)
     features = add_opponent_lagged_stats(features, selected_stat, opponent)
 
-    model, weights = train_model(features, targets)
-    # This is only for evluating the model, To see evaluation score uncomment this function
-    # walk_forward_validation(features, targets, weights, window=10, val_window=5)
+    # Step 3: Train model
+    model, weights = train_model(features, targets, selected_stat)
+
+    # Step 4: Save model artifacts (optional for deployment)
     save_models(model, target_stats)
-    print('Audit the last 5 Rows\n----------')
-    print(df[['Date', 'TB', 'H', 'R', 'AB']].tail())
+
+    # Step 5: Audit data and input row
+    print("Audit the last 5 Rows\n----------")
+    print(df[['Date', 'TB', 'H', 'R', 'AB', 'BA', 'HR', selected_stat]].tail())
     print("\nLatest input used for prediction:\n", features.iloc[[-1]].T)
+
+    # Step 6: Feature importance
+    selected_model = model.estimators_[target_stats.index(selected_stat)]
+    importances = selected_model.feature_importances_
+    min_len = min(len(importances), len(features.columns))
+
+    important_features = pd.Series(
+        importances[:min_len], index=features.columns[:min_len]
+    ).sort_values(ascending=False)
+
+    # Step 7: Filter irrelevant opponent flags (only active one stays)
+    active_opponent = [col for col in features.columns if col.startswith('Opp_') and features.iloc[-1][col]]
+    opponent_cols = [col for col in features.columns if col.startswith('Opp_')]
+    irrelevant_opponents = [col for col in opponent_cols if col not in active_opponent]
+
+    important_filtered = important_features.drop(index=irrelevant_opponents).sort_values(ascending=False)
+
+    # Step 8: Generate prediction
     predict_next_game(model, features, target_stats)
 
-    # Optional: Show training performance
-    # train_preds = model.predict(features)
-    # print(f"\nTraining MSE: {mean_squared_error(targets, train_preds):.2f}")
-    # print(f"Training R2: {r2_score(targets, train_preds):.2f}")
+    # Step 9: Evaluation and snapshots
+    print(f"\nFiltered Top Features for {selected_stat} Prediction:\n", important_filtered.head(10))
+    print(f"\nAverage {selected_stat} in training data: {df[selected_stat].mean()}")
+    print(f"{selected_stat} distribution:\n", df[selected_stat].value_counts().sort_index())
+    print(f"\nActual {selected_stat} from last game: {df.iloc[-1][selected_stat]}")
 
-    tb_model = model.estimators_[target_stats.index(selected_stat)]
-    importances = tb_model.feature_importances_
-    tb_features = features.columns
-    important_tb = pd.Series(
-        importances, index=tb_features).sort_values(ascending=False)
+    stat_cols = [c for c in features.columns if selected_stat in c]
+    print(f"{selected_stat.upper()} Feature Snapshot Last 5 Entries")
+    print(features[stat_cols].tail().to_string(index=False))
 
-    print("\nTop Features for TB Prediction:\n", important_tb.head(10))
-
-    print(f"\nAverage {selected_stat} in training data:",
-          df[selected_stat].mean())
-    print(f"{selected_stat} distribution:\n",
-          df[selected_stat].value_counts().sort_index())
-
-    print(f"\nActual {selected_stat} from last game:",
-          df.iloc[-1][selected_stat])
-
-    cols = [c for c in features.columns if selected_stat in c]
-    print(f"\nRecent {selected_stat}-related features:\n",
-          features[cols].tail())
+    print("\nFinal prediction input row:")
+    print(features.iloc[-1][features.iloc[-1] != 0].sort_values(ascending=False))
