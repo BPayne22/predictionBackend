@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, make_response
 import predictionModelV3 as model_logic
 from flask_cors import CORS
 import os
@@ -34,7 +34,7 @@ def predict():
     try:
         target_stats, prediction = model_logic.get_prediction(
             player, stat, opponent)
-        return jsonify({stat: f"{float(val):.2f}" for stat, val in zip(target_stats, prediction)})
+        return jsonify({stat: f"{float(val):.3f}" for stat, val in zip(target_stats, prediction)})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
