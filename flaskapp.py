@@ -11,6 +11,7 @@ CORS(app, origins=[
     "http://localhost:5500",
     "https://rylandbangerter.github.io",
     "https://686e981c9930ce00086f44c9--merry-gnome-9ee3d2.netlify.app"
+    "https://686e981c9930ce00086f44c9--merry-gnome-9ee3d2.netlify.app/mbgpt/"
 ], supports_credentials=True)
 
 @app.route("/predict", methods=["POST", "OPTIONS"])
