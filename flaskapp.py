@@ -4,6 +4,8 @@ import predictionModelV3 as model_logic
 import os
 
 app = Flask(__name__)
+
+# CORS setup — local + production URLs (fixed comma issue)
 CORS(app, origins=[
     "http://127.0.0.1:5500",
     "http://localhost:5500",
@@ -12,17 +14,25 @@ CORS(app, origins=[
     "https://686e981c9930ce00086f44c9--merry-gnome-9ee3d2.netlify.app/mbgpt/"
 ], supports_credentials=True)
 
-@app.route("/predict", methods=["OPTIONS", "POST"])
+# Health check route for backend wake-up
+@app.route("/", methods=["GET"])
+def health_check():
+    return "Backend is awake", 200
+
+# Main prediction endpoint
+@app.route("/predict", methods=["POST", "OPTIONS"])
 def predict():
+    # Handle CORS preflight manually (just in case flask-cors doesn't catch it)
     if request.method == "OPTIONS":
-        # Return a valid preflight response
         response = make_response()
         response.headers["Access-Control-Allow-Origin"] = request.headers.get("Origin")
         response.headers["Access-Control-Allow-Headers"] = "Content-Type"
         response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
         return response
 
+    # Handle actual POST request
     data = request.get_json()
+
     player = data.get("player")
     stat = data.get("stat")
     opponent = data.get("opponent")
@@ -36,6 +46,7 @@ def predict():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# Server entry point
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
