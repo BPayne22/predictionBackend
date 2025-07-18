@@ -136,7 +136,7 @@ def prepare_features_and_targets(df, selected_stat):
 
     # Columns to drop that are metadata or too noisy
     drop_cols = [
-        'Date','Result','Team','DFS(DK)','DFS(FD)','WPA','cWPA','aLI','acLI',
+        'Date','Result','Team','DFS(DK)','DFS(FD)','WPA','cWPA','OPS','aLI','acLI',
         'RE24','Rk','Inngs','Pos','Gtm','Gcar','@/H','BOP','IBB','HBP','SH','SF','CS','player'
     ]
     df = df.drop(columns=[col for col in drop_cols if col in df.columns], errors='ignore')
