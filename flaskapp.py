@@ -5,54 +5,45 @@ import os
 
 app = Flask(__name__)
 
-# CORS setup — trusted frontend origins (local + production)
-CORS(app, origins=[
-    "http://127.0.0.1:5500",
-    "http://localhost:5500",
-    "https://rylandbangerter.github.io",
-    "https://686e981c9930ce00086f44c9--merry-gnome-9ee3d2.netlify.app",
-    "https://686e981c9930ce00086f44c9--merry-gnome-9ee3d2.netlify.app/mbgpt/"
-], supports_credentials=True)
+# Apply flask-cors first
+CORS(app, supports_credentials=True)
 
-# Global CORS headers injection (Render-safe and future-proof)
+# Inject headers manually after every response
 @app.after_request
-def add_cors_headers(response):
+def apply_cors_headers(response):
     origin = request.headers.get("Origin")
-    allowed_origins = [
+    allowed = [
         "https://686e981c9930ce00086f44c9--merry-gnome-9ee3d2.netlify.app",
         "https://686e981c9930ce00086f44c9--merry-gnome-9ee3d2.netlify.app/mbgpt/",
-        "https://rylandbangerter.github.io",
         "http://localhost:5500",
-        "http://127.0.0.1:5500"
+        "http://127.0.0.1:5500",
+        "https://rylandbangerter.github.io"
     ]
-
-    if origin in allowed_origins:
+    if origin in allowed:
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Credentials"] = "true"
         response.headers["Access-Control-Allow-Headers"] = "Content-Type"
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     return response
 
-# Wake-up endpoint to ping backend
+# Health check
 @app.route("/", methods=["GET"])
 def health_check():
     return jsonify({"status": "Backend is awake"}), 200
 
-# Prediction endpoint
+# Prediction route
 @app.route("/predict", methods=["POST", "OPTIONS"])
 def predict():
     if request.method == "OPTIONS":
-        # Preflight CORS response
         response = make_response()
         origin = request.headers.get("Origin")
         if origin:
             response.headers["Access-Control-Allow-Origin"] = origin
-        response.headers["Access-Control-Allow-Headers"] = "Content-Type"
-        response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
-        response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+            response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
         return response
 
-    # Actual prediction request
     data = request.get_json()
     player = data.get("player")
     stat = data.get("stat")
@@ -67,7 +58,7 @@ def predict():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Deployment entry point
+# Entry point
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
